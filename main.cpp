@@ -63,7 +63,7 @@ unsigned char* base64_url_decode(std::string enc, int* len)
   enc = replace_str(enc, "-", "+");
   enc = replace_str(enc, "_", "/");
 
-  unsigned char* buf = unbase64(enc.c_str(), enc.size(), len);
+  auto buf = unbase64(enc.c_str(), enc.size(), len);
 
   return buf;
 }
@@ -143,16 +143,14 @@ bool verify_license_key_authenticity(const std::string public_key, const std::st
 
   // Base64 decode signature
   int sig_len;
-  unsigned char* sig_buf = base64_url_decode(encoded_sig, &sig_len);
+  auto sig_buf = base64_url_decode(encoded_sig, &sig_len);
 
   // Recreate signing data using signing prefix
   std::string re_signing_data = SIGNING_PREFIX + SIGNING_PREFIX_DELIMITER + encoded_key;
 
   // Cast to bytes
-  int data_len = re_signing_data.size();
-  unsigned char* data_buf = reinterpret_cast<unsigned char *>(
-    const_cast<char *>(re_signing_data.c_str())
-  );
+  auto data_buf = reinterpret_cast<const unsigned char*>(re_signing_data.c_str());
+  auto data_len = re_signing_data.size();
 
   // Decode hex public key into bytes
   unsigned char key_bytes[32];
@@ -165,7 +163,7 @@ bool verify_license_key_authenticity(const std::string public_key, const std::st
   {
     // Base64 decode license key
     int key_len;
-    unsigned char* key_buf = base64_url_decode(encoded_key, &key_len);
+    auto key_buf = base64_url_decode(encoded_key, &key_len);
 
     std::cerr << ansii_color_str("[INFO]", 34) << " "
               << "License key contents: "
