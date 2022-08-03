@@ -1,8 +1,5 @@
-#include "include/base64.h"
-#include <openssl/pem.h>
-#include <openssl/rsa.h>
-#include <openssl/sha.h>
-#include <openssl/bio.h>
+#include "include/ed25519/ed25519.h"
+#include "include/base64/base64.h"
 #include <stdlib.h>
 #include <assert.h>
 #include <iostream>
@@ -10,12 +7,13 @@
 #include <string>
 #include <vector>
 
-using namespace std;
+// We don't need Ed25519 key generation
+#define ED25519_NO_SEED
 
-// Add ANSII color codes to string
-string ansii_color_str(const string str, const int color_code)
+// ansii_color_str adds ANSII color codes to a string.
+std::string ansii_color_str(const std::string str, const int color_code)
 {
-  ostringstream stream;
+  std::ostringstream stream;
 
   stream << "\033[1;";
   stream << color_code;
@@ -26,13 +24,13 @@ string ansii_color_str(const string str, const int color_code)
   return stream.str();
 }
 
-// Split a string by delimiter into a vector
-vector<string> split_str(string str, string delim)
+// split_str splits a string by delimiter into a vector of strings.
+std::vector<std::string> split_str(std::string str, std::string delim)
 {
-  vector<string> result;
+  std::vector<std::string> result;
   size_t pos;
 
-  while ((pos = str.find(delim)) != string::npos)
+  while ((pos = str.find(delim)) != std::string::npos)
   {
     result.push_back(str.substr(0, pos));
 
@@ -44,10 +42,11 @@ vector<string> split_str(string str, string delim)
   return result;
 }
 
-string replace_str(string str, const string& from, const string& to) {
+// replace_str replaces occurences of a string within a string with another string.
+std::string replace_str(std::string str, const std::string& from, const std::string& to) {
   size_t pos = 0;
 
-  while ((pos = str.find(from, pos)) != string::npos)
+  while ((pos = str.find(from, pos)) != std::string::npos)
   {
     str.replace(pos, from.length(), to);
 
@@ -57,61 +56,57 @@ string replace_str(string str, const string& from, const string& to) {
   return str;
 }
 
-unsigned char* base64_url_decode(string enc, int* len)
+// base64_url_decode decodes a base64-url encoded string.
+unsigned char* base64_url_decode(std::string enc, int* len)
 {
   // Convert base64url encoding to base64 (see https://keygen.sh/docs/api/#license-signatures)
   enc = replace_str(enc, "-", "+");
   enc = replace_str(enc, "_", "/");
 
-  unsigned char* buf = base64_decode(enc.c_str(), enc.size(), len);
+  unsigned char* buf = unbase64(enc.c_str(), enc.size(), len);
 
   return buf;
 }
 
-// Load an RSA public key from a PEM string
-RSA* load_rsa_pem_pub_key_from_string(const string pem_pub_key)
+// unhex convert a hex string to raw bytes.
+inline void unhex(std::string str, unsigned char* bytes)
 {
-  BIO* bio = BIO_new_mem_buf(pem_pub_key.c_str(), -1);
-  BIO_set_flags(bio, BIO_FLAGS_BASE64_NO_NL);
+  std::stringstream converter;
 
-  RSA* rsa = PEM_read_bio_RSA_PUBKEY(bio, nullptr, nullptr, nullptr);
-  if (!rsa)
+  for (int i = 0; i < str.size(); i += 2)
   {
-    cerr << ansii_color_str("[ERROR]", 31) << " "
-         << "Failed to load public key"
-         << endl;
+    int byte;
 
-    exit(1);
+    converter << std::hex << str.substr(i, 2);
+    converter >> byte;
+
+    bytes[i / 2] = byte & 0xff;
+
+    converter.str(std::string());
+    converter.clear();
   }
-
-  // Should always be a 2048-bit public key
-  assert(2048/8 == RSA_size(rsa));
-
-  BIO_free(bio);
-
-  return rsa;
 }
 
-// Verify a license key's authenticity by verifying its cryptographic signature
-bool verify_license_key_authenticity(RSA* rsa, const string license_key)
+// verify_license_key_authenticity verifies a license key's authenticity by verifying its cryptographic signature.
+bool verify_license_key_authenticity(const std::string public_key, const std::string license_key)
 {
-  const string LICENSE_KEY_DELIMITER = ".";
-  const string SIGNING_PREFIX_DELIMITER = "/";
-  const string SIGNING_PREFIX = "key";
+  const std::string LICENSE_KEY_DELIMITER = ".";
+  const std::string SIGNING_PREFIX_DELIMITER = "/";
+  const std::string SIGNING_PREFIX = "key";
 
-  string signing_data;
-  string encoded_sig;
-  string encoded_key;
+  std::string signing_data;
+  std::string encoded_sig;
+  std::string encoded_key;
 
   // Key should have the format: key/{BASE64URL_KEY}.{BASE64URL_SIGNATURE}
   {
-    vector<string> vec = split_str(license_key, LICENSE_KEY_DELIMITER);
+    std::vector<std::string> vec = split_str(license_key, LICENSE_KEY_DELIMITER);
     if (vec.size() != 2)
     {
-      cerr << ansii_color_str("[ERROR]", 31) << " "
-          << "License key is incorrectly formatted or invalid: "
-          << license_key
-          << endl;
+      std::cerr << ansii_color_str("[ERROR]", 31) << " "
+                << "License key is incorrectly formatted or invalid: "
+                << license_key
+                << std::endl;
 
       exit(1);
     }
@@ -122,23 +117,23 @@ bool verify_license_key_authenticity(RSA* rsa, const string license_key)
 
   // Split encoded key from prefix
   {
-    vector<string> vec = split_str(signing_data, SIGNING_PREFIX_DELIMITER);
+    std::vector<std::string> vec = split_str(signing_data, SIGNING_PREFIX_DELIMITER);
     if (vec.size() != 2)
     {
-      cerr << ansii_color_str("[ERROR]", 31) << " "
-          << "License key is incorrectly formatted or invalid: "
-          << license_key
-          << endl;
+      std::cerr << ansii_color_str("[ERROR]", 31) << " "
+                << "License key is incorrectly formatted or invalid: "
+                << license_key
+                << std::endl;
 
       exit(1);
     }
 
     if (vec[0] != SIGNING_PREFIX)
     {
-      cerr << ansii_color_str("[ERROR]", 31) << " "
-          << "License key prefix is invalid: "
-          << vec[0].c_str()
-          << endl;
+      std::cerr << ansii_color_str("[ERROR]", 31) << " "
+                << "License key prefix is invalid: "
+                << vec[0].c_str()
+                << std::endl;
 
       exit(1);
     }
@@ -146,86 +141,74 @@ bool verify_license_key_authenticity(RSA* rsa, const string license_key)
     encoded_key = vec[1];
   }
 
-  // Base64 decode license key
-  int key_len;
-  unsigned char* key_buf = base64_url_decode(encoded_key, &key_len);
-
   // Base64 decode signature
   int sig_len;
   unsigned char* sig_buf = base64_url_decode(encoded_sig, &sig_len);
 
-  // Add signing prefix to license key for signature verification
-  string recreated_signing_data = SIGNING_PREFIX + SIGNING_PREFIX_DELIMITER + encoded_key;
-  int signing_data_len = recreated_signing_data.size();
-  unsigned char* signing_data_buf = reinterpret_cast<unsigned char *>(
-    const_cast<char *>(recreated_signing_data.c_str())
+  // Recreate signing data using signing prefix
+  std::string re_signing_data = SIGNING_PREFIX + SIGNING_PREFIX_DELIMITER + encoded_key;
+
+  // Cast to bytes
+  int data_len = re_signing_data.size();
+  unsigned char* data_buf = reinterpret_cast<unsigned char *>(
+    const_cast<char *>(re_signing_data.c_str())
   );
 
-  // Hash prefixed license key using SHA256
-  unsigned char signing_data_digest[SHA256_DIGEST_LENGTH];
-  SHA256(signing_data_buf, signing_data_len, signing_data_digest);
+  // Decode hex public key into bytes
+  unsigned char key_bytes[32];
 
-  // Verify the key's signature
-  int res = RSA_verify(
-    NID_sha256,
-    signing_data_digest,
-    SHA256_DIGEST_LENGTH,
-    sig_buf,
-    sig_len,
-    rsa
-  );
+  unhex(public_key, key_bytes);
 
-  RSA_free(rsa);
-
-  free(key_buf);
-  free(sig_buf);
-
-  if (res)
+  // Verify signature
+  auto ok = ed25519_verify(sig_buf, data_buf, data_len, key_bytes);
+  if (ok)
   {
-    cerr << ansii_color_str("[INFO]", 34) << " "
-          << "License key contents: "
-          << key_buf
-          << endl;
+    // Base64 decode license key
+    int key_len;
+    unsigned char* key_buf = base64_url_decode(encoded_key, &key_len);
+
+    std::cerr << ansii_color_str("[INFO]", 34) << " "
+              << "License key contents: "
+              << key_buf
+              << std::endl;
   }
 
-  return (bool) res;
+  return (bool) ok;
 }
 
 int main(int argc, char* argv[])
 {
+  if (!getenv("KEYGEN_PUBLIC_KEY"))
+  {
+    std::cerr << ansii_color_str("[ERROR]", 31) << " "
+              << "Environment variable KEYGEN_PUBLIC_KEY is missing"
+              << std::endl;
+
+    exit(1);
+  }
+
   if (argc == 1)
   {
-    cerr << ansii_color_str("[ERROR]", 31) << " "
-         << "No license key argument specified"
-         << endl;
+    std::cerr << ansii_color_str("[ERROR]", 31) << " "
+              << "License key argument is required"
+              << std::endl;
 
     exit(1);
   }
 
-  string pem_pub_key = getenv("KEYGEN_PUBLIC_KEY");
-  if (pem_pub_key.empty())
+  std::string public_key = getenv("KEYGEN_PUBLIC_KEY");
+  std::string license_key = argv[1];
+  bool ok = verify_license_key_authenticity(public_key, license_key);
+  if (ok)
   {
-    cerr << ansii_color_str("[ERROR]", 31) << " "
-         << "No public key ENV var found"
-         << endl;
-
-    exit(1);
-  }
-
-  RSA* rsa = load_rsa_pem_pub_key_from_string(pem_pub_key);
-  string license_key = argv[1];
-
-  bool res = verify_license_key_authenticity(rsa, license_key);
-  if (res)
-  {
-    cout << ansii_color_str("[OK]", 32) << " "
-         << "License key is authentic!"
-         << endl;
+    std::cout << ansii_color_str("[OK]", 32) << " "
+              << "License key is authentic!"
+              << std::endl;
   }
   else
   {
-    cerr << ansii_color_str("[ERROR]", 31) << " "
-         << "License key is not authentic!"
-         << endl;
+    std::cerr << ansii_color_str("[ERROR]", 31) << " "
+              << "License key is not authentic!"
+              << std::endl;
   }
 }
